@@ -11,6 +11,7 @@ from web3.exceptions import ContractLogicError
 import web3
 from bs4 import BeautifulSoup
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from io import BytesIO
 import time
 from decimal import Decimal
@@ -53,7 +54,10 @@ except ImportError as e:
 print(f"Web3.py version: {web3.__version__}")
 
 # Set up logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG  # Set to DEBUG to capture all logs
+)
 logger = logging.getLogger(__name__)
 
 # Initialize Telegram bot
@@ -303,8 +307,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/autoETH - Get metrics for the autoETH pool\n"
         "/autoLRT - Get metrics for the autoLRT pool\n"
         "/balETH - Get metrics for the balETH pool\n"
-        "/tokemaktvl - View Tokemak's Total Value Locked (TVL) over time\n"
-        "/poolsummary - Get a summary of all pools\n"
+        "/tokemak_tvl - View Tokemak's Total Value Locked (TVL) over time\n"
+        "/pool_summary - Get a summary of all pools\n"
         "/gitbook - Access Tokemak's GitBook documentation\n"
         "/ask <question> - Ask a question about Tokemak\n"
         "/help - Show this help message"
@@ -1175,8 +1179,8 @@ async def tokemak_tvl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             
             plt.grid(color='gray', linestyle='--', alpha=0.3)
             
-            # Format y-axis labels to show in billions
-            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e9:.1f}B'))
+            # Format y-axis labels to show in millions
+            ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'${x/1e6:.1f}M'))
             
             # Rotate and align the tick labels so they look better
             plt.gcf().autofmt_xdate()
@@ -1233,17 +1237,18 @@ async def pool_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         # Add value labels on top of each bar
         for i, v in enumerate(values):
-            ax.text(i, v, f'{v:.2f}', ha='center', va='bottom', color='white')
+            ax.text(i, v, f'{v:.2f}', color='white', ha='center', va='bottom')
 
-        plt.tight_layout()
-
+        # Save the plot to a buffer
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', facecolor='black', edgecolor='none')
+        plt.savefig(buf, format='png', facecolor='black', edgecolor='none', bbox_inches='tight')
         buf.seek(0)
-        plt.close(fig)
-
-        # Send the chart
+        
+        # Send the image
         await update.message.reply_photo(buf, caption="Total Assets Distribution Across Pools")
+        
+        # Close the plot to free up memory
+        plt.close(fig)
 
     except Exception as e:
         logger.error(f"Error in pool_summary: {str(e)}")
@@ -1451,8 +1456,7 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     Respond as a college professor conducting a one-on-one session with a student.
     Use clear, precise language and provide detailed explanations to ensure understanding.
     Your explanation should be insightful and educational, while still conveying accurate information about Tokemak and blockchain.
-    Begin with a brief overview of the topic.
-    Limit your response to two or three concise, informative paragraphs.
+    Limit your response to one concise, informative paragraph.
     
     Information: {AUTOPOOL_INFO}
 
@@ -1463,19 +1467,13 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a college professor conducting a one-on-one session with a student. Use clear, precise language and provide detailed explanations to ensure understanding. Your responses should be insightful and educational, yet accurately convey information. Always begin with a brief overview of the topic. Limit your responses to two or three concise, informative paragraphs."},
+                {"role": "system", "content": "You are a college professor conducting a one-on-one session with a student. Use clear, precise language and provide detailed explanations to ensure understanding. Your responses should be insightful and educational, yet accurately convey information. Limit your responses to one concise, informative paragraph."},
                 {"role": "user", "content": prompt}
             ]
         )
         answer = response.choices[0].message.content.strip()
         
-        # Split the answer into paragraphs
-        paragraphs = answer.split('\n\n')
-        
-        # Limit to 2-3 paragraphs
-        if len(paragraphs) > 3:
-            answer = '\n\n'.join(paragraphs[:3])
-        
+        # Send the answer
         await update.message.reply_text(answer)
     except openai.RateLimitError as e:
         logger.error(f"OpenAI API rate limit exceeded: {str(e)}")
